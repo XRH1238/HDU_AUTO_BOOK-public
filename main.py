@@ -90,6 +90,32 @@ class SeatAutoBooker:
         except Exception:
             logging.exception("Failed to save login_debug.png")
 
+    def _set_input_value(self, element, value):
+        element.click()
+        element.clear()
+        element.send_keys(value)
+        current_value = element.get_attribute("value") or ""
+        if current_value == value:
+            return
+
+        logging.warning("send_keys did not persist, falling back to JS value setter")
+        self.driver.execute_script(
+            """
+            const element = arguments[0];
+            const value = arguments[1];
+            const setter = Object.getOwnPropertyDescriptor(
+                HTMLInputElement.prototype,
+                'value'
+            ).set;
+            setter.call(element, value);
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+            element.dispatchEvent(new Event('blur', { bubbles: true }));
+            """,
+            element,
+            value,
+        )
+
     def book_favorite_seat(self, user_config, seat_config):
         target_weekday = get_target_weekday(offset_days=2)
         seat_type = seat_config[user_config[target_weekday]["name"]]["type"]
@@ -193,13 +219,13 @@ class SeatAutoBooker:
             )
             logging.debug("找到登录按钮")
 
-            username_input.clear()
-            username_input.send_keys(self.un)
+            self._set_input_value(username_input, self.un)
             logging.info("输入用户名")
+            logging.debug("Username field value length=%s", len(username_input.get_attribute("value") or ""))
 
-            password_input.clear()
-            password_input.send_keys(self.pd)
+            self._set_input_value(password_input, self.pd)
             logging.info("输入密码")
+            logging.debug("Password field value length=%s", len(password_input.get_attribute("value") or ""))
 
             self.wait.until(
                 lambda driver: login_button.is_enabled()
