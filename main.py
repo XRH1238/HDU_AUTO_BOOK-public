@@ -90,6 +90,16 @@ class SeatAutoBooker:
         except Exception:
             logging.exception("Failed to save login_debug.png")
 
+    def _dump_user_info_debug(self, response):
+        try:
+            with open("user_info_debug.txt", "w", encoding="utf-8") as f_obj:
+                f_obj.write("status_code={}\n".format(response.status_code))
+                f_obj.write("url={}\n\n".format(response.url))
+                f_obj.write(response.text)
+            logging.info("Saved user info debug response to user_info_debug.txt")
+        except Exception:
+            logging.exception("Failed to save user_info_debug.txt")
+
     def _set_input_value(self, element, value):
         element.click()
         element.clear()
@@ -187,16 +197,16 @@ class SeatAutoBooker:
         logging.info("Login in")
 
         username_selector = (
-            By.CSS_SELECTOR,
-            'form[action="login"] input[name="username"][placeholder="请输入学工号/绑定手机/证件号"]',
+            By.XPATH,
+            "//form[@action='login']//input[@name='username' and not(@type='hidden')]",
         )
         password_selector = (
-            By.CSS_SELECTOR,
-            'form[action="login"] input[type="password"][placeholder="请输入密码"]',
+            By.XPATH,
+            "//form[@action='login']//input[@type='password']",
         )
         button_selector = (
-            By.CSS_SELECTOR,
-            'form[action="login"] button[type="submit"]',
+            By.XPATH,
+            "//form[@action='login']//button[@type='submit']",
         )
 
         try:
@@ -235,10 +245,13 @@ class SeatAutoBooker:
             login_button.click()
 
             try:
-                self.wait.until(lambda driver: "sso.hdu.edu.cn" not in driver.current_url)
-            except TimeoutException:
                 self.wait.until(
                     lambda driver: "hdu.huitu.zhishulib.com" in driver.current_url
+                )
+            except TimeoutException:
+                logging.warning(
+                    "Login did not redirect to target site, current_url=%s",
+                    self.driver.current_url,
                 )
 
             cookie_list = self.driver.get_cookies()
@@ -247,8 +260,14 @@ class SeatAutoBooker:
             )
             self.cfg["headers"]["Cookie"] = self.cookie
 
-            if "hdu.huitu.zhishulib.com" not in self.driver.current_url:
-                raise RuntimeError("登录后未跳回图书馆站点")
+            library_cookies = [
+                item for item in cookie_list
+                if "hdu.huitu.zhishulib.com" in item.get("domain", "")
+            ]
+            if "hdu.huitu.zhishulib.com" not in self.driver.current_url and not library_cookies:
+                raise RuntimeError(
+                    "登录后未跳回图书馆站点，且未获取到图书馆域名Cookie"
+                )
             if not self.cookie:
                 raise RuntimeError("登录完成但未获取到Cookie")
 
@@ -269,7 +288,12 @@ class SeatAutoBooker:
                 "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats?LAB_JSON=1",
                 headers=headers,
             )
-            self.user_data = resp.json()["DATA"]
+            resp_json = resp.json()
+            if "DATA" not in resp_json:
+                logging.error("searchSeats response missing DATA: %s", resp.text[:500])
+                self._dump_user_info_debug(resp)
+                raise KeyError("DATA")
+            self.user_data = resp_json["DATA"]
             _ = self.user_data["uid"]
         except Exception as exc:
             logging.exception(exc)
