@@ -100,6 +100,21 @@ class SeatAutoBooker:
             )
         self._refresh_cookie_header_from_items()
 
+    def _sync_cookie_items_from_driver(self):
+        self.cookie_items = self.driver.get_cookies()
+        self._refresh_cookie_header_from_items()
+
+    def _bootstrap_library_session_with_driver(self):
+        bridge_url = (
+            "https://hdu.huitu.zhishulib.com/User/Index/"
+            "hduCASLogin?forward=%2FSeat%2FIndex%2FsearchSeats"
+        )
+        logging.info("Bootstrapping library session via Selenium: %s", bridge_url)
+        self.driver.get(bridge_url)
+        time.sleep(3)
+        self._sync_cookie_items_from_driver()
+        self.cfg["headers"]["Cookie"] = self.cookie
+
     def _dump_login_debug(self):
         try:
             current_url = self.driver.current_url
@@ -279,10 +294,27 @@ class SeatAutoBooker:
             )
             logging.info("点击登录按钮")
             login_button.click()
+            self.driver.execute_script(
+                """
+                const button = arguments[0];
+                const form = button.closest('form');
+                if (form) {
+                    if (typeof form.requestSubmit === 'function') {
+                        form.requestSubmit(button);
+                    } else {
+                        form.submit();
+                    }
+                }
+                """,
+                login_button,
+            )
 
             try:
                 self.wait.until(
-                    lambda driver: "hdu.huitu.zhishulib.com" in driver.current_url
+                    lambda driver: (
+                        "hdu.huitu.zhishulib.com" in driver.current_url
+                        or "sso.hdu.edu.cn/login" not in driver.current_url
+                    )
                 )
             except TimeoutException:
                 logging.warning(
@@ -290,10 +322,12 @@ class SeatAutoBooker:
                     self.driver.current_url,
                 )
 
-            cookie_list = self.driver.get_cookies()
-            self.cookie_items = cookie_list
-            self._refresh_cookie_header_from_items()
-            self.cfg["headers"]["Cookie"] = self.cookie
+            if "sso.hdu.edu.cn/login" in self.driver.current_url:
+                raise RuntimeError("登录提交后仍停留在统一认证登录页")
+
+            self._bootstrap_library_session_with_driver()
+
+            cookie_list = self.cookie_items
 
             library_cookies = [
                 item for item in cookie_list
@@ -324,6 +358,10 @@ class SeatAutoBooker:
             if resp_json.get("ui_type") == "com.Redirect" and resp_json.get("href"):
                 redirect_url = resp_json["href"]
                 logging.warning("searchSeats requested CAS redirect: %s", redirect_url)
+                self.driver.get(redirect_url)
+                time.sleep(3)
+                self._sync_cookie_items_from_driver()
+                session = self._build_requests_session()
                 redirect_resp = session.get(redirect_url, allow_redirects=True)
                 logging.info(
                     "CAS bridge response status=%s final_url=%s",
