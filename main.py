@@ -160,9 +160,18 @@ class SeatAutoBooker:
     def login(self):
         logging.info("Login in")
 
-        username_selector = (By.NAME, "username")
-        password_selector = (By.CSS_SELECTOR, 'input[type="password"][placeholder="请输入密码"]')
-        button_selector = (By.CSS_SELECTOR, 'button[type="submit"]')
+        username_selector = (
+            By.CSS_SELECTOR,
+            'form[action="login"] input[name="username"][placeholder="请输入学工号/绑定手机/证件号"]',
+        )
+        password_selector = (
+            By.CSS_SELECTOR,
+            'form[action="login"] input[type="password"][placeholder="请输入密码"]',
+        )
+        button_selector = (
+            By.CSS_SELECTOR,
+            'form[action="login"] button[type="submit"]',
+        )
 
         try:
             logging.info("开始登录...")
@@ -170,17 +179,17 @@ class SeatAutoBooker:
             logging.debug("打开网站")
 
             username_input = self.wait.until(
-                EC.presence_of_element_located(username_selector)
+                EC.visibility_of_element_located(username_selector)
             )
             logging.debug("找到用户名输入框")
 
             password_input = self.wait.until(
-                EC.presence_of_element_located(password_selector)
+                EC.visibility_of_element_located(password_selector)
             )
             logging.debug("找到密码输入框")
 
             login_button = self.wait.until(
-                EC.presence_of_element_located(button_selector)
+                EC.element_to_be_clickable(button_selector)
             )
             logging.debug("找到登录按钮")
 
