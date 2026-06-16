@@ -42,6 +42,7 @@ class SeatAutoBooker:
         self.json = None
         self.resp = None
         self.user_data = None
+        self.cookie_items = []
 
         logging.info("Creating SeatAutoBooker object")
 
@@ -63,6 +64,41 @@ class SeatAutoBooker:
         self.wait = WebDriverWait(self.driver, 20, 0.5)
         self.cookie = None
         self.cfg = booker_config
+
+    def _refresh_cookie_header_from_items(self):
+        if not self.cookie_items:
+            self.cookie = ""
+            return
+        self.cookie = ";".join(
+            ["{}={}".format(item["name"], item["value"]) for item in self.cookie_items]
+        )
+
+    def _build_requests_session(self):
+        session = requests.Session()
+        for key, value in self.cfg["headers"].items():
+            if key.lower() != "cookie":
+                session.headers[key] = value
+        for item in self.cookie_items:
+            session.cookies.set(
+                item["name"],
+                item["value"],
+                domain=item.get("domain"),
+                path=item.get("path", "/"),
+            )
+        return session
+
+    def _sync_cookie_items_from_session(self, session):
+        self.cookie_items = []
+        for cookie in session.cookies:
+            self.cookie_items.append(
+                {
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "domain": cookie.domain or "",
+                    "path": cookie.path or "/",
+                }
+            )
+        self._refresh_cookie_header_from_items()
 
     def _dump_login_debug(self):
         try:
@@ -255,9 +291,8 @@ class SeatAutoBooker:
                 )
 
             cookie_list = self.driver.get_cookies()
-            self.cookie = ";".join(
-                [item["name"] + "=" + item["value"] for item in cookie_list]
-            )
+            self.cookie_items = cookie_list
+            self._refresh_cookie_header_from_items()
             self.cfg["headers"]["Cookie"] = self.cookie
 
             library_cookies = [
@@ -281,18 +316,30 @@ class SeatAutoBooker:
     def get_user_info(self):
         logging.info("Getting user info")
 
-        headers = self.cfg["headers"]
-        headers["Cookie"] = self.cookie
+        session = self._build_requests_session()
+        search_url = "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats?LAB_JSON=1"
         try:
-            resp = requests.get(
-                "https://hdu.huitu.zhishulib.com/Seat/Index/searchSeats?LAB_JSON=1",
-                headers=headers,
-            )
+            resp = session.get(search_url)
             resp_json = resp.json()
+            if resp_json.get("ui_type") == "com.Redirect" and resp_json.get("href"):
+                redirect_url = resp_json["href"]
+                logging.warning("searchSeats requested CAS redirect: %s", redirect_url)
+                redirect_resp = session.get(redirect_url, allow_redirects=True)
+                logging.info(
+                    "CAS bridge response status=%s final_url=%s",
+                    redirect_resp.status_code,
+                    redirect_resp.url,
+                )
+                self._sync_cookie_items_from_session(session)
+                self.cfg["headers"]["Cookie"] = self.cookie
+                resp = session.get(search_url)
+                resp_json = resp.json()
             if "DATA" not in resp_json:
                 logging.error("searchSeats response missing DATA: %s", resp.text[:500])
                 self._dump_user_info_debug(resp)
                 raise KeyError("DATA")
+            self._sync_cookie_items_from_session(session)
+            self.cfg["headers"]["Cookie"] = self.cookie
             self.user_data = resp_json["DATA"]
             _ = self.user_data["uid"]
         except Exception as exc:
