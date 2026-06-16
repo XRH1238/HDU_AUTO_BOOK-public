@@ -47,3 +47,4 @@ jobs:
           path: |
             login_debug.html
             login_debug.png
+            user_info_debug.txt
