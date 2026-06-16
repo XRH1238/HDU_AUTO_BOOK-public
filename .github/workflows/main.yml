@@ -38,3 +38,12 @@ jobs:
           PASSWORD: ${{ secrets.PASSWORD }}
           SCKEY: ${{ secrets.SCKEY }}
         run: python main.py
+      - name: Upload login debug artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-debug
+          if-no-files-found: ignore
+          path: |
+            login_debug.html
+            login_debug.png
